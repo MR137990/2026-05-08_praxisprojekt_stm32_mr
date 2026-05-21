@@ -29,7 +29,7 @@ void setup() {
 
   // check I2C
   if(bmp.begin(0x76)){
-    Serial.println("I2C gestartet");
+    Serial.println("I2C gestartet! Ich bin der Sender :)))");
   } else {
     Serial.print("Ooops, kein BMP280!");
     while(1); 
@@ -101,9 +101,9 @@ void loop() {
     digitalWrite(LED_TX, HIGH);
 
     // 4. Daten über den LR1121 abschicken
-    //int state = radio.transmit(sendeText);
-    int state = radio.transmit(sendeText.c_str());
-
+    int state = radio.transmit(sendeText);
+    //int state = radio.transmit(sendeText.c_str());
+    //int state = radio.startTransmit("Hello World!");
     // 5. LED wieder ausschalten
     digitalWrite(LED_TX, LOW);
 

@@ -31,7 +31,7 @@ void setup() {
   if(bmp.begin(0x76)){
     Serial.println("I2C gestartet");
   } else {
-    Serial.print("Ooops, kein BMP280!");
+    Serial.println("Ooops, kein BMP280! Ich bin der Empfänger :)))");
 //    while(1); 
   }
 
@@ -74,12 +74,44 @@ void setup() {
     Serial.println(state);
     while(1);
   }
+
+  radio.startReceive();
+
 }
 
-String meinEmpfang = "";
-String letzterEmpfang = "";
+//String meinEmpfang = "";
+//String letzterEmpfang = "";
 
-void loop() {
+void loop(){
+
+  if(digitalRead(LR_IRQ) == HIGH) {
+    
+    String str = "";
+    int state = radio.readData(str);
+
+    if(state == RADIOLIB_ERR_NONE) {
+      // packet was successfully received
+      Serial.println(F("[LR1121] Received packet!"));
+
+      // print data of the packet
+      Serial.print(F("[LR1121] Data:\t\t"));
+      Serial.println(str);
+
+      // print RSSI (Received Signal Strength Indicator)
+      Serial.print(F("[LR1121] RSSI:\t\t"));
+      Serial.print(radio.getRSSI());
+      Serial.println(F(" dBm"));
+
+      // print SNR (Signal-to-Noise Ratio)
+      Serial.print(F("[LR1110] SNR:\t\t"));
+      Serial.print(radio.getSNR());
+      Serial.println(F(" dB"));
+
+    } 
+  }
+}
+
+/*void loop() {
   // RadioLib liest die Bytes direkt in den Speicher ein
   int state = radio.receive(meinEmpfang);
   
@@ -116,4 +148,4 @@ void loop() {
       Serial.println(state);
     }
   }
-}
+}*/
