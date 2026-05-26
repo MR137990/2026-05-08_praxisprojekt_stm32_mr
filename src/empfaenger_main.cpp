@@ -87,15 +87,19 @@ void loop(){
   if(digitalRead(LR_IRQ) == HIGH) {
     
     String str = "";
-    int state = radio.readData(str);
+    package empfangeneDaten;
+
+    //int state = radio.readData(str);
+    int state = radio.readData((uint8_t*)&empfangeneDaten, sizeof(empfangeneDaten));
 
     if(state == RADIOLIB_ERR_NONE) {
       // packet was successfully received
       Serial.println(F("[LR1121] Received packet!"));
 
       // print data of the packet
-      Serial.print(F("[LR1121] Data:\t\t"));
-      Serial.println(str);
+      Serial.println(F("[LR1121] Data:\t\t"));
+      Serial.println(empfangeneDaten.temp);
+      Serial.println(empfangeneDaten.pres);
 
       // print RSSI (Received Signal Strength Indicator)
       Serial.print(F("[LR1121] RSSI:\t\t"));

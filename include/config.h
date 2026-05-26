@@ -21,4 +21,23 @@
 // Falls noch nicht definiert, füge deine Button-Pins hier hinzu:
 //#define USER_BTN  D2  // Passe den Pin an dein Nucleo-Board an!
 
+// 3. Datentypen
+struct __attribute__((packed)) package {
+    // LoRa Identifier 
+    //int ident; //Ist das der richtige Weg? Übergebe über main
+    // --- BMP280 Daten ---
+    float temp;       // 4 Bytes: Temperatur in °C
+    float pres;       // 4 Bytes: Luftdruck in hPa
+
+    // --- BNO055 Orientierungsdaten (Euler-Winkel) ---
+    //float orie_x;  // 4 Bytes: Heading / Gierwinkel (0° bis 360°)
+    //float orie_y;  // 4 Bytes: Rollwinkel (-90° bis +90°)
+    //float orie_z;  // 4 Bytes: Nickwinkel / Pitch (-180° bis +180°)
+
+    // --- BNO055 Beschleunigungsdaten (Linear) ---
+    //float acce_x; // 4 Bytes: Beschleunigung X-Achse in m/s²
+    //float acce_y; // 4 Bytes: Beschleunigung Y-Achse in m/s²
+    //float acce_z; // 4 Bytes: Beschleunigung Z-Achse in m/s²
+};
+
 #endif

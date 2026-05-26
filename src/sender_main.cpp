@@ -3,7 +3,7 @@
 
 Adafruit_BMP280 bmp; // use I2C interface
 Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
-//Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
+Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
 
 int lastState = HIGH; //Pull-up auf High heißt Button nicht gedrückt, LOW heißt Button gedrückt
 
@@ -85,25 +85,34 @@ void loop() {
     Serial.println("Button Pressed!");
 
     // 1. Temperatur vom BMP280 auslesen
-    sensors_event_t temp_event;
+    sensors_event_t temp_event, pressure_event;
+
     bmp_temp->getEvent(&temp_event);
-    float temperatur = temp_event.temperature;
+    //float temperature = temp_event.temperature;
+
+    bmp_pressure->getEvent(&pressure_event);
+    //float pressure = temp_event.pressure;
 
     // 2. Den float-Wert in einen String umwandeln
     // (Der zweite Parameter "2" sorgt für zwei Nachkommastellen, z.B. "23.45")
-    String sendeText = String(temperatur, 2);
+    //String sendeText = String(temperature, 2);
 
-    Serial.print("Sende Temperaturwert: ");
-    Serial.print(sendeText);
-    Serial.println(" °C ...");
+    package sendeDaten = {temp_event.temperature, pressure_event.pressure};
+
+    Serial.println("Sende Datenpaket mit: ");
+    //Serial.print(sendeText);
+    Serial.println(sendeDaten.temp);
+    Serial.println(sendeDaten.pres);
+    //Serial.println(" °C ...");
 
     // 3. LED für die Sende-Dauer einschalten (Visuelles Feedback)
     digitalWrite(LED_TX, HIGH);
 
     // 4. Daten über den LR1121 abschicken
-    int state = radio.transmit(sendeText);
-    //int state = radio.transmit(sendeText.c_str());
     //int state = radio.startTransmit("Hello World!");
+    //int state = radio.transmit(sendeText);
+    int state = radio.transmit((uint8_t*)&sendeDaten, sizeof(sendeDaten));
+
     // 5. LED wieder ausschalten
     digitalWrite(LED_TX, LOW);
 
