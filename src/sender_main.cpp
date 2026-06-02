@@ -79,17 +79,26 @@ void setup() {
 void loop() {
 
   int buttonState = digitalRead(USER_BTN);
+  static bool sendingOperation = false;
 
-  if (buttonState == LOW && buttonState != lastState) {
-    
-    Serial.println("Button Pressed!");
+  if (buttonState == LOW) {
+  sendingOperation = !sendingOperation; // Toggle
+  
+  if(sendingOperation) {
+    Serial.println("Sender operating");
+  } else {
+    Serial.println("Sender operation shut off");
+  }
+  delay(2000); // Entprellen/Warten
+}
 
-    // 1. Temperatur vom BMP280 auslesen
+  if (sendingOperation == true) {
+    // Temperatur vom BMP280 auslesen
     sensors_event_t temp_event, pressure_event;
     bmp_temp->getEvent(&temp_event);
     bmp_pressure->getEvent(&pressure_event);
 
-    // 2. Beschleunigung von BNO055 auslesen
+    // Beschleunigung von BNO055 auslesen
     sensors_event_t accelerometerData;
     bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
 
@@ -108,7 +117,7 @@ void loop() {
     int state = radio.transmit((uint8_t*)&sendeDaten, sizeof(sendeDaten));
     digitalWrite(LED_TX, LOW);  // Indication: sending off
 
-    // 6. Überprüfen, ob das Senden erfolgreich war
+    // Überprüfen, ob das Senden erfolgreich war
     if (state == RADIOLIB_ERR_NONE) {
       Serial.println("SUCCESS: Paket erfolgreich gesendet!");
     } 
@@ -119,13 +128,6 @@ void loop() {
       Serial.print("Fehler beim Senden! Code: ");
       Serial.println(state);
     }
-    
+    delay(3000);
   }
-  else if (buttonState == HIGH && buttonState != lastState){
-    Serial.println("Button Released!");
-  }
-
-  lastState = buttonState;
-  
-  delay(10);
 }
