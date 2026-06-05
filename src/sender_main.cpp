@@ -4,38 +4,38 @@
 Adafruit_BMP280 bmp; // use I2C interface
 Adafruit_Sensor *bmp_temp = bmp.getTemperatureSensor();
 Adafruit_Sensor *bmp_pressure = bmp.getPressureSensor();
-
 Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28, &Wire);
-
-int lastState = HIGH; //Pull-up auf High heißt Button nicht gedrückt, LOW heißt Button gedrückt
 
 LR1121 radio = new Module(LR_NSS, LR_IRQ, LR_RESET, LR_BUSY);
 
+// Globale Variablen für das blockierungsfreie Zeitmanagement
+unsigned long naechsterSendetermin = 0;
+unsigned long letzterKnopfDruck = 0;
+int lastButtonState = HIGH;
+bool sendingOperation = false;
+LoRaConfig activeConfig;
+
 void wait_busy() {
-  // Der LR1121 signalisiert "Beschäftigt" durch ein HIGH Signal
   while(digitalRead(LR_BUSY) == HIGH) {
     yield(); // Erlaubt dem System Hintergrundaufgaben (wichtig für Stabilität)
+    Serial.println("Der LR1121 signalisiert Beschäftigt durch ein HIGH Signal");
   }
 }
 
 void setup() {
-  
-  // start UART
   Serial.begin(115200);
-  while(!Serial);
-  Serial.println("=========================");
+  while(!Serial); // Warten bis LR1121 startet
   Serial.println("Serial gestartet!");
-  // SPI-Bus starten
   SPI.begin();
 
-  // check I2C, BMP starten
-  if (!bmp.begin(0x76)) { // Falls 0x76 nicht klappt, probiere 0x77
+  delay(200); // <-- GENAU HIER: Den Sensoren Zeit zum Aufwachen geben!
+
+  if (!bmp.begin(0x76)) {
     Serial.println(F("[ERROR] BMP280 nicht gefunden!"));
     while (1);
   }
-  Serial.println(F("[OK] BMP280 erfolgreich initialisiert."));
+  Serial.println(F("[OK] BMP280 erfolgreich initialisiert.")); // wofür steht das F()?
 
-  // check I2C, BNO starten
   if (!bno.begin()) {
     Serial.println(F("[ERROR] BNO055 nicht gefunden!"));
     while (1);
@@ -44,15 +44,14 @@ void setup() {
 
   delay(1000);
 
-  // Pins deklarieren
   pinMode(LED_RX, OUTPUT);
   pinMode(LED_TX, OUTPUT);
   pinMode(LR_BUSY, INPUT);
   pinMode(LR_RESET, OUTPUT);
   pinMode(LR_NSS, OUTPUT);
-  pinMode(USER_BTN, INPUT_PULLUP); // Senden
+  pinMode(USER_BTN, INPUT_PULLUP);
 
-  // NSS muss vor dem Reset zwingend HIGH sein!
+  // NSS muss vor dem Reset zwingend HIGH sein! IST DER HARDWARE RESET ZWINGEND NOTWENDIG?
   digitalWrite(LR_NSS, HIGH); 
   // LR1121 Hardware-Reset für Semtech-Shields
   Serial.println("Semtech LR1121 Hardware Reset...");
@@ -69,7 +68,26 @@ void setup() {
   int state = radio.begin();
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println("SUCCESS: radio.begin() erfolgreich durchgeführt!");
-  } else {
+  
+    Serial.println("Push User Button to choose 433MHz");
+    delay(1000);
+    if (digitalRead(USER_BTN) == LOW) {
+      activeConfig = config433;
+      Serial.println("Chosen LoRa parameter: 433MHz");
+    }
+    else {
+      activeConfig = config868;
+      Serial.println("Chosen LoRa parameter: 868MHz");
+    }
+    delay(1000);
+
+    radio.setFrequency(activeConfig.frequency);
+    radio.setOutputPower(activeConfig.txPower);
+    radio.setBandwidth(activeConfig.bandwidth);
+    radio.setSpreadingFactor(activeConfig.spreadingFactor);
+    radio.setCodingRate(activeConfig.codingRate);
+  } 
+  else {
     Serial.print("RadioLib Fehler! Code: ");
     Serial.println(state);
     while(1);
@@ -77,57 +95,87 @@ void setup() {
 }
 
 void loop() {
+  // =========================================================================
+  // 1. TASTER-ABFRAGE (Völlig blockierungsfrei, reagiert IMMER sofort)
+  // =========================================================================
+  int currentButtonState = digitalRead(USER_BTN);
+  // Flankenerkennung: Knopf wird frisch gedrückt (Wechsel von HIGH auf LOW)
+  if (currentButtonState == LOW && lastButtonState == HIGH) {
+    // Software-Entprellung: Nur reagieren, wenn der letzte Druck > 200ms her ist
+    if (millis() - letzterKnopfDruck > 200) {
+      sendingOperation = !sendingOperation; // Zustand toggeln
+      letzterKnopfDruck = millis();         // Zeitstempel merken
 
-  int buttonState = digitalRead(USER_BTN);
-  static bool sendingOperation = false;
-
-  if (buttonState == LOW) {
-  sendingOperation = !sendingOperation; // Toggle
-  
-  if(sendingOperation) {
-    Serial.println("Sender operating");
-  } else {
-    Serial.println("Sender operation shut off");
-  }
-  delay(2000); // Entprellen/Warten
-}
-
-  if (sendingOperation == true) {
-    // Temperatur vom BMP280 auslesen
-    sensors_event_t temp_event, pressure_event;
-    bmp_temp->getEvent(&temp_event);
-    bmp_pressure->getEvent(&pressure_event);
-
-    // Beschleunigung von BNO055 auslesen
-    sensors_event_t accelerometerData;
-    bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
-
-    package sendeDaten = {temp_event.temperature, accelerometerData.acceleration.x, accelerometerData.acceleration.y, accelerometerData.acceleration.z};
-    Serial.println("Sende Datenpaket mit: ");
-    Serial.println("Temperature: ");
-    Serial.println(sendeDaten.temp);
-    Serial.println("X: ");
-    Serial.println(sendeDaten.acce_x, 4);
-    Serial.println("Y: ");
-    Serial.println(sendeDaten.acce_y, 4);
-    Serial.println("Z: ");
-    Serial.println(sendeDaten.acce_z, 4);
-
-    digitalWrite(LED_TX, HIGH); // Indication: sending
-    int state = radio.transmit((uint8_t*)&sendeDaten, sizeof(sendeDaten));
-    digitalWrite(LED_TX, LOW);  // Indication: sending off
-
-    // Überprüfen, ob das Senden erfolgreich war
-    if (state == RADIOLIB_ERR_NONE) {
-      Serial.println("SUCCESS: Paket erfolgreich gesendet!");
-    } 
-    else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
-      Serial.println("Fehler: Sende-Timeout!");
-    } 
-    else {
-      Serial.print("Fehler beim Senden! Code: ");
-      Serial.println(state);
+      if(sendingOperation) {
+        Serial.println("Sender activated");
+      } else {
+        Serial.println("Sender deactivated");
+      }
     }
-    delay(3000);
+  }
+  lastButtonState = currentButtonState; // Zustand für den nächsten Durchlauf merken
+
+  // =========================================================================
+  // 2. PAYLOAD (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+  // =========================================================================
+  if (sendingOperation == true) {
+    if (millis() >= naechsterSendetermin){
+      // Sensoren auslesen
+      sensors_event_t temp_event, pressure_event;
+      bmp_temp->getEvent(&temp_event);
+      bmp_pressure->getEvent(&pressure_event);
+
+      // Beschleunigung von BNO055 auslesen
+      sensors_event_t accelerometerData;
+      bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+
+      package sendeDaten = {
+        temp_event.temperature, 
+        accelerometerData.acceleration.x, 
+        accelerometerData.acceleration.y, 
+        accelerometerData.acceleration.z
+      };
+
+      // =========================================================================
+      // 3. SENDEN (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+      // =========================================================================
+      Serial.println("--- Sende Datenpaket ---");
+      Serial.print("Temp: "); Serial.println(sendeDaten.temp);
+      Serial.print("X: ");    Serial.println(sendeDaten.acce_x, 4);
+      Serial.print("Y: ");    Serial.println(sendeDaten.acce_y, 4);
+      Serial.print("Z: ");    Serial.println(sendeDaten.acce_z, 4);
+
+      digitalWrite(LED_TX, HIGH); // Indication: sending
+      int state = radio.transmit((uint8_t*)&sendeDaten, sizeof(sendeDaten));
+      digitalWrite(LED_TX, LOW);  // Indication: sending off
+
+      // =========================================================================
+      // 4. CHECK UND NAECHSTE SENDEZEIT BERECHNEN MIT TOA
+      // =========================================================================
+      if (state == RADIOLIB_ERR_NONE) {
+        Serial.println("SUCCESS: Paket erfolgreich gesendet!");
+        
+        // --- Dynamische Berechnung der gesetzlichen Pause (Duty Cycle) ---
+        // getTimeOnAir liefert Mikrosekunden (us), wir teilen durch 1000 für Millisekunden (ms)
+        unsigned long toaMs = radio.getTimeOnAir(sizeof(sendeDaten)) / 1000;
+        
+        // Bei 1% Duty Cycle (868 MHz) muss die Pause 99-mal so lang sein wie die Sendezeit
+        unsigned long pauseMs = toaMs * 99; 
+        
+        // Den zukünftigen Zeitpunkt berechnen, ab wann wir wieder senden dürfen
+        naechsterSendetermin = millis() + pauseMs;
+        
+        Serial.print("Time-on-Air (ToA): "); Serial.print(toaMs); Serial.println(" ms");
+        Serial.print("Gesetzliche Sperrzeit aktiv fuer: "); Serial.print(pauseMs / 1000.0); Serial.println(" Sekunden.");
+      } 
+      else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+        Serial.println("Fehler: Sende-Timeout!");
+        naechsterSendetermin = millis() + 1000; // Bei Fehler nach 1 Sekunde neu versuchen
+      } 
+      else {
+        Serial.print("Fehler beim Senden! Code: "); Serial.println(state);
+        naechsterSendetermin = millis() + 1000; 
+      }
+    }
   }
 }

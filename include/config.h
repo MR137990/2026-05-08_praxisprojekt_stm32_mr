@@ -40,4 +40,18 @@ struct __attribute__((packed)) package {
     float acce_z; // 4 Bytes: Beschleunigung Z-Achse in m/s²
 };
 
+struct LoRaConfig {
+    float frequency;
+    int8_t txPower;
+    float bandwidth;
+    uint8_t spreadingFactor;
+    uint8_t codingRate;
+};
+
+// Preset 1: Europa 868 MHz (Max 14 dBm)
+const LoRaConfig config868 = { 868.1, 14, 125.0, 9, 7 };
+
+// Preset 2: Europa 433 MHz (Max 10 dBm)
+const LoRaConfig config433 = { 433.175, 10, 125.0, 9, 7 };
+
 #endif
