@@ -5,6 +5,8 @@ int lastState = HIGH; //Pull-up auf High heißt Button nicht gedrückt, LOW hei�
 
 LR1121 radio = new Module(LR_NSS, LR_IRQ, LR_RESET, LR_BUSY);
 
+LoRaConfig activeConfig;
+
 void wait_busy() {
   // Der LR1121 signalisiert "Beschäftigt" durch ein HIGH Signal
   while(digitalRead(LR_BUSY) == HIGH) {
@@ -13,7 +15,7 @@ void wait_busy() {
 }
 
 void setup() {
-  Serial.begin(115200);
+Serial.begin(115200);
   while(!Serial);
 
   Serial.println("===========EMPFAENGER!==============");
@@ -48,14 +50,32 @@ void setup() {
   int state = radio.begin();
   if (state == RADIOLIB_ERR_NONE) {
     Serial.println("SUCCESS: radio.begin() erfolgreich durchgeführt!");
-  } else {
+
+    Serial.println("Push User Button to choose 433MHz");
+    delay(1000);
+    if (digitalRead(USER_BTN) == LOW) {
+      activeConfig = config433;
+      Serial.println("Chosen LoRa parameter: 433MHz");
+    }
+    else {
+      activeConfig = config868;
+      Serial.println("Chosen LoRa parameter: 868MHz");
+    }
+    delay(1000);
+
+    radio.setFrequency(activeConfig.frequency);
+    radio.setOutputPower(activeConfig.txPower);
+    radio.setBandwidth(activeConfig.bandwidth);
+    radio.setSpreadingFactor(activeConfig.spreadingFactor);
+    radio.setCodingRate(activeConfig.codingRate);
+  } 
+  else {
     Serial.print("RadioLib Fehler! Code: ");
     Serial.println(state);
     while(1);
   }
 
   radio.startReceive();
-
 }
 
 void loop(){

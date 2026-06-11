@@ -15,6 +15,13 @@ int lastButtonState = HIGH;
 bool sendingOperation = false;
 LoRaConfig activeConfig;
 
+// --- Ringpuffer & Filter Variablen ---
+const int BUFFER_SIZE = 50;        // 50 Samples * 10ms = 500ms Filterfenster (niquist)
+float buffer_X[BUFFER_SIZE];
+float buffer_Y[BUFFER_SIZE];
+int bufferIndex = 0;               // Zeigt auf die aktuelle Schreibposition
+unsigned long letzteSensorAbfrage = 0; // Speicher für den 10-ms-Takt (Niquist, physikalische Schwingung)
+
 void wait_busy() {
   while(digitalRead(LR_BUSY) == HIGH) {
     yield(); // Erlaubt dem System Hintergrundaufgaben (wichtig für Stabilität)
@@ -51,7 +58,7 @@ void setup() {
   pinMode(LR_NSS, OUTPUT);
   pinMode(USER_BTN, INPUT_PULLUP);
 
-  // NSS muss vor dem Reset zwingend HIGH sein! IST DER HARDWARE RESET ZWINGEND NOTWENDIG?
+  // NSS muss vor dem Reset zwingend HIGH sein!
   digitalWrite(LR_NSS, HIGH); 
   // LR1121 Hardware-Reset für Semtech-Shields
   Serial.println("Semtech LR1121 Hardware Reset...");
@@ -125,9 +132,23 @@ void loop() {
       bmp_temp->getEvent(&temp_event);
       bmp_pressure->getEvent(&pressure_event);
 
-      // Beschleunigung von BNO055 auslesen
-      sensors_event_t accelerometerData;
-      bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+      // =========================================================================
+      // 3. EDGE-Computing (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+      // =========================================================================
+      if (millis() - letzteSensorAbfrage >= 10) {
+        letzteSensorAbfrage = millis();
+
+        // Beschleunigung von BNO055 auslesen
+        sensors_event_t accelerometerData;
+        bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+
+        // Werte in die aktuellen Schubladen des Arrays legen
+        buffer_X[bufferIndex] = accelerometerData.acceleration.x;
+        buffer_Y[bufferIndex] = accelerometerData.acceleration.y;
+
+        // JETZT den Zeiger um eins erhöhen, und bei 50 automatisch auf 0 zurückwerfen
+        bufferIndex = (bufferIndex + 1) % BUFFER_SIZE; // Modolo
+      }
 
       package sendeDaten = {
         temp_event.temperature, 
@@ -137,7 +158,7 @@ void loop() {
       };
 
       // =========================================================================
-      // 3. SENDEN (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+      // 4. SENDEN (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
       // =========================================================================
       Serial.println("--- Sende Datenpaket ---");
       Serial.print("Temp: "); Serial.println(sendeDaten.temp);
@@ -150,7 +171,7 @@ void loop() {
       digitalWrite(LED_TX, LOW);  // Indication: sending off
 
       // =========================================================================
-      // 4. CHECK UND NAECHSTE SENDEZEIT BERECHNEN MIT TOA
+      // 5. CHECK UND NAECHSTE SENDEZEIT BERECHNEN MIT TOA
       // =========================================================================
       if (state == RADIOLIB_ERR_NONE) {
         Serial.println("SUCCESS: Paket erfolgreich gesendet!");

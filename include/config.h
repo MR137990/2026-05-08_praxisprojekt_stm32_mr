@@ -49,7 +49,7 @@ struct LoRaConfig {
 };
 
 // Preset 1: Europa 868 MHz (Max 14 dBm)
-const LoRaConfig config868 = { 868.1, 14, 125.0, 9, 7 };
+const LoRaConfig config868 = { 868.1, 14, 125.0, 7, 7 };
 
 // Preset 2: Europa 433 MHz (Max 10 dBm)
 const LoRaConfig config433 = { 433.175, 10, 125.0, 9, 7 };
