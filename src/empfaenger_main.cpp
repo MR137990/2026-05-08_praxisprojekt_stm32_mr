@@ -133,38 +133,3 @@ void loop(){
     } 
   }
 }
-
-/*
-void loop(){
-  if(digitalRead(LR_IRQ) == HIGH) {
-    package empfangeneDaten;
-    int state = radio.readData((uint8_t*)&empfangeneDaten, sizeof(empfangeneDaten));
-
-    if(state == RADIOLIB_ERR_NONE) {
-      // packet was successfully received
-      Serial.println(F("[LR1121] Received packet!"));
-
-      // print data of the packet
-      Serial.println(F("[LR1121] Data:"));
-      Serial.println("Temperature:");
-      Serial.println(empfangeneDaten.temp);
-      Serial.println("X:");
-      Serial.println(empfangeneDaten.acce_x, 4);
-      Serial.println("Y:");
-      Serial.println(empfangeneDaten.acce_y, 4);
-      Serial.println("Z:");
-      Serial.println(empfangeneDaten.acce_z, 4);
-
-      // print RSSI (Received Signal Strength Indicator)
-      Serial.print(F("[LR1121] RSSI:\t\t"));
-      Serial.print(radio.getRSSI());
-      Serial.println(F(" dBm"));
-
-      // print SNR (Signal-to-Noise Ratio)
-      Serial.print(F("[LR1110] SNR:\t\t"));
-      Serial.print(radio.getSNR());
-      Serial.println(F(" dB"));
-    } 
-  }
-}
-*/
