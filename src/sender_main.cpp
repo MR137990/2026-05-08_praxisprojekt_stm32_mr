@@ -19,8 +19,14 @@ LoRaConfig activeConfig;
 const int BUFFER_SIZE = 50;        // 50 Samples * 10ms = 500ms Filterfenster (niquist)
 float buffer_X[BUFFER_SIZE];
 float buffer_Y[BUFFER_SIZE];
+float buffer_Z[BUFFER_SIZE];
+
 int bufferIndex = 0;               // Zeigt auf die aktuelle Schreibposition
 unsigned long letzteSensorAbfrage = 0; // Speicher für den 10-ms-Takt (Niquist, physikalische Schwingung)
+
+// --- Globaler Schlüssel für die XOR-Verschlüsselung ---
+const uint8_t xorKey[] = { 0x5A, 0xA5, 0x1F, 0xE1, 0x3C, 0xC3, 0x7F, 0xF7 };
+const size_t keySize = sizeof(xorKey);
 
 void wait_busy() {
   while(digitalRead(LR_BUSY) == HIGH) {
@@ -122,8 +128,28 @@ void loop() {
   }
   lastButtonState = currentButtonState; // Zustand für den nächsten Durchlauf merken
 
+    // =========================================================================
+    // 2. EDGE-Computing (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+    // =========================================================================
+    if (millis() - letzteSensorAbfrage >= 10) {
+      letzteSensorAbfrage = millis();
+
+      // Beschleunigung von BNO055 auslesen
+      sensors_event_t accelerometerData;
+      bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+
+      // Werte in die aktuellen Schubladen des Arrays legen
+      buffer_X[bufferIndex] = accelerometerData.acceleration.x;
+      buffer_Y[bufferIndex] = accelerometerData.acceleration.y;
+      buffer_Z[bufferIndex] = accelerometerData.acceleration.z;
+
+
+      // JETZT den Zeiger um eins erhöhen, und bei 50 automatisch auf 0 zurückwerfen
+      bufferIndex = (bufferIndex + 1) % BUFFER_SIZE; // Modolo
+    }
+
   // =========================================================================
-  // 2. PAYLOAD (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+  // 3. Senden (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
   // =========================================================================
   if (sendingOperation == true) {
     if (millis() >= naechsterSendetermin){
@@ -133,43 +159,54 @@ void loop() {
       bmp_pressure->getEvent(&pressure_event);
 
       // =========================================================================
-      // 3. EDGE-Computing (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
+      // 4. MATHEMATIK: MITTELWERT BERECHNEN (Genau im Moment des Sendens)
       // =========================================================================
-      if (millis() - letzteSensorAbfrage >= 10) {
-        letzteSensorAbfrage = millis();
+      float summeX = 0.0;
+      float summeY = 0.0;
+      float summeZ = 0.0;
 
-        // Beschleunigung von BNO055 auslesen
-        sensors_event_t accelerometerData;
-        bno.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER);
+      // Alle 50 Werte aus dem Array addieren
+      for (int i = 0; i < BUFFER_SIZE; i++) {
+        summeX = summeX + buffer_X[i];
+        summeY = summeY + buffer_Y[i];
+        summeZ = summeZ + buffer_Z[i];
 
-        // Werte in die aktuellen Schubladen des Arrays legen
-        buffer_X[bufferIndex] = accelerometerData.acceleration.x;
-        buffer_Y[bufferIndex] = accelerometerData.acceleration.y;
-
-        // JETZT den Zeiger um eins erhöhen, und bei 50 automatisch auf 0 zurückwerfen
-        bufferIndex = (bufferIndex + 1) % BUFFER_SIZE; // Modolo
       }
+
+      // Durch 50 teilen = Der fertige, geglättete Gleichanteil (Neigung!)
+      float mean_X = summeX / BUFFER_SIZE;
+      float mean_Y = summeY / BUFFER_SIZE;
+      float mean_Z = summeZ / BUFFER_SIZE;
 
       package sendeDaten = {
         temp_event.temperature, 
-        accelerometerData.acceleration.x, 
-        accelerometerData.acceleration.y, 
-        accelerometerData.acceleration.z
+        mean_X,  // Gefilterter Wert X
+        mean_Y,  // Gefilterter Wert Y
+        mean_Z   // Gefilterter Wert Z
       };
 
-      // =========================================================================
-      // 4. SENDEN (Nur wenn aktiv UND die gesetzliche ToA-Pause abgelaufen ist)
-      // =========================================================================
       Serial.println("--- Sende Datenpaket ---");
       Serial.print("Temp: "); Serial.println(sendeDaten.temp);
-      Serial.print("X: ");    Serial.println(sendeDaten.acce_x, 4);
-      Serial.print("Y: ");    Serial.println(sendeDaten.acce_y, 4);
-      Serial.print("Z: ");    Serial.println(sendeDaten.acce_z, 4);
+      Serial.print("Mean X: "); Serial.println(sendeDaten.acce_x, 4);
+      Serial.print("Mean Y: "); Serial.println(sendeDaten.acce_y, 4);      
+      Serial.print("Mean Z: "); Serial.println(sendeDaten.acce_z, 4);
 
-      digitalWrite(LED_TX, HIGH); // Indication: sending
-      int state = radio.transmit((uint8_t*)&sendeDaten, sizeof(sendeDaten));
-      digitalWrite(LED_TX, LOW);  // Indication: sending off
+      // =========================================================================
+      // 4b. INLINE XOR-VERSCHLÜSSELUNG
+      // =========================================================================
+      // Wir casten das Struct im Speicher zu einem Byte-Array
+      uint8_t* bytePointer = (uint8_t*)&sendeDaten;
+      size_t datenGroesse = sizeof(sendeDaten);
 
+      // Jedes einzelne Byte wird direkt im Arbeitsspeicher mit dem Key XOR-verknüpft
+      for (size_t i = 0; i < datenGroesse; i++) {
+        bytePointer[i] ^= xorKey[i % keySize];
+      }
+
+      digitalWrite(LED_TX, HIGH);
+      int state = radio.transmit((uint8_t*)&sendeDaten, datenGroesse);
+      digitalWrite(LED_TX, LOW);
+      
       // =========================================================================
       // 5. CHECK UND NAECHSTE SENDEZEIT BERECHNEN MIT TOA
       // =========================================================================
@@ -178,7 +215,7 @@ void loop() {
         
         // --- Dynamische Berechnung der gesetzlichen Pause (Duty Cycle) ---
         // getTimeOnAir liefert Mikrosekunden (us), wir teilen durch 1000 für Millisekunden (ms)
-        unsigned long toaMs = radio.getTimeOnAir(sizeof(sendeDaten)) / 1000;
+        unsigned long toaMs = radio.getTimeOnAir(datenGroesse) / 1000;
         
         // Bei 1% Duty Cycle (868 MHz) muss die Pause 99-mal so lang sein wie die Sendezeit
         unsigned long pauseMs = toaMs * 99; 
